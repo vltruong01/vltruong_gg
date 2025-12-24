@@ -1,9 +1,14 @@
 {
   "name": "tiny-kitchen",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Tiny Kitchen - realtime co-op cooking game (Node.js + Express + Socket.IO + Canvas)",
   "main": "server.js",
   "type": "commonjs",
+  "engines": {
+    "node": "20.x",
+    "npm": "10.x"
+  },
+  "packageManager": "npm@10.9.2",
   "scripts": {
     "start": "node server.js"
   },

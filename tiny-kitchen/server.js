@@ -3,13 +3,13 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 
-const BUILD = "tiny-kitchen-build-2025-12-24a";
+const BUILD = "tiny-kitchen-build-2025-12-23i";
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT || process.env.HTTP_PORT || 8080);
 app.use(express.static(path.join(__dirname, "public")));
 
 server.listen(PORT, () => {
@@ -22,11 +22,6 @@ const SNAPSHOT_RATE = 12;
 const MAP_W = 900;
 const MAP_H = 520;
 
-
-const WALL_T = 18;
-const KITCHEN_FENCE_X = 460; // smaller kitchen, larger dining/service area
-const KITCHEN_DOOR_TOP = 90;
-const KITCHEN_DOOR_BOT = 190;
 const PLAYER_R = 16;
 const PLAYER_SPEED = 175;
 
@@ -46,9 +41,7 @@ const BURN_EXTRA = 8.0;
 
 const EAT_TIME_MIN = 5.0; // seconds customer eats after serving (min)
 const EAT_TIME_MAX = 10.0; // seconds customer eats after serving (max)
-const PRE_EAT_TIME_MIN = 2.0; // pre-item (coke/ice cream) eating time (min)
-const PRE_EAT_TIME_MAX = 3.5; // pre-item eating time (max)
-const WASH_TIME = 7.0; // seconds to wash a dirty plate
+const WASH_TIME = 5.0; // seconds to wash a dirty plate
 
 // Order taking / greeting
 const ORDER_TAKE_TIME = 20.0; // seconds to greet/take order before customer leaves
@@ -56,37 +49,21 @@ const ORDER_QUICK_TIME = 10.0; // <= this means full wait time
 const FOOD_WAIT_MAX = 60.0; // seconds customer will wait for food if greeted quickly
 const FOOD_WAIT_MIN = 30.0; // minimum wait time if greeted very late
 const INITIAL_CUSTOMER_SPAWN_DELAY = 5.0; // minimum seconds before the first group can spawn
-function thirdTableSpawnChance(lockedCount) {
-  const n = Math.max(2, Math.min(5, Number(lockedCount || 2)));
-  // Higher player count => more likely to have all 3 tables occupied at once.
-  if (n <= 2) return 0.18;
-  if (n === 3) return 0.28;
-  if (n === 4) return 0.48;
-  return 0.62; // 5p
-}
-
-function ovenSlotCountForPlayers(lockedCount) {
-  const n = Math.max(2, Math.min(5, Number(lockedCount || 2)));
-  return n >= 4 ? 3 : 2;
-}
-
+const THIRD_TABLE_SPAWN_CHANCE = 0.15; // chance to spawn 3rd group when 2 tables already occupied
 const INITIAL_GROUP_MAX_SIZE = 2; // first spawned group cannot be 3 people
 function maxCustomersForPlayers(lockedCount) {
   const n = Math.max(2, Math.min(5, Number(lockedCount || 2)));
-  // Keep original caps (as requested): 2p:4, 3p:5, 4p:7, 5p:8
-  if (n === 2) return 4;
-  if (n === 3) return 5;
-  if (n === 4) return 7;
-  return 8;
+  // Desired caps:
+  // 2p:4, 3p:5, 4p:7, 5p:8
+  if (n <= 3) return n + 2;
+  return n + 3;
 }
-
 const LEAVE_ANGRY_PENALTY_PER_PERSON = { 1: 12, 2: 18, 3: 24 }; // penalty per timed-out person, scaled by original group size
 function leaveAngryPenaltyPerPerson(groupSize) {
   const s = Math.max(1, Math.min(3, Number(groupSize || 1)));
   return LEAVE_ANGRY_PENALTY_PER_PERSON[s] || 12;
 }
-const WRONG_DISH_WAIT_PENALTY = 10.0; // -10s ONCE from THIS seat's remaining wait time when serving wrong item
-const PRE_BONUS_WAIT = 10.0; // +10s to remaining wait time after correctly serving+consuming a pre-item
+const WRONG_DISH_WAIT_PENALTY = 5.0; // seconds deducted from THIS seat's remaining food wait when serving wrong dish
 
 
 const ACTIONS_PER_SEC_LIMIT = 10;
@@ -157,8 +134,6 @@ const PIZZA_TYPES = ["PIZZA_PHOMAI", "PIZZA_XUCXICH", "PIZZA_XUCXICH_PHOMAI"];
 const PIZZA_ITEM_TYPES = ["PIZZA_BASE", "RAW_PIZZA", ...PIZZA_TYPES, "BURNT_PIZZA"];
 const TOPPINGS = ["CHEESE", "SAUSAGE"];
 
-const EXTRA_ORDERS = ["COKE", "ICE_CREAM"];
-
 // Make dish comparisons robust across legacy/alternate naming.
 // Canonical cooked dish types are:
 // - PIZZA_PHOMAI
@@ -180,8 +155,6 @@ function dishLabelVi(t) {
   if (c === "PIZZA_PHOMAI") return "Pizza phô mai";
   if (c === "PIZZA_XUCXICH") return "Pizza xúc xích";
   if (c === "PIZZA_XUCXICH_PHOMAI") return "Pizza phô mai + xúc xích";
-  if (c === "COKE") return "Coca";
-  if (c === "ICE_CREAM") return "Kem ốc quế";
   if (String(t || "").toUpperCase() === "BURNT_PIZZA") return "Pizza cháy";
   return String(t || "");
 }
@@ -201,45 +174,34 @@ function hasAnyTopping(meta) {
 /** Layout */
 function buildKitchenLayout(orderSlots, lockedCount) {
   const stations = [];
-  // Normalize locked player count early (used by multiple station rules)
-  const lc = Math.max(2, Math.min(5, Number(lockedCount || 2)));
   const topY = 26, topH = 54;
-  const kitchenRightInner = KITCHEN_FENCE_X - WALL_T;
+
   // ingredient shelf (3 bins packed closely)
   const shelfX = 40;
-  const binW = 78;
-  const binGap = 0;
+  const binW = 92;
+  const binGap = 4;
   stations.push({ id: "BIN_BASE", type: "BIN", gives: "PIZZA_BASE", label: "PIZZA", x: shelfX + (binW + binGap) * 0, y: topY, w: binW, h: topH });
   stations.push({ id: "BIN_CHEESE", type: "BIN", gives: "CHEESE", label: "CHEESE", x: shelfX + (binW + binGap) * 1, y: topY, w: binW, h: topH });
   stations.push({ id: "BIN_SAUSAGE", type: "BIN", gives: "SAUSAGE", label: "SAUSAGE", x: shelfX + (binW + binGap) * 2, y: topY, w: binW, h: topH });
 
-  // Coke pump (auto provides cup + coca)
-    // Coke pump (auto provides cup + coca) — moved to mid-left
-  stations.push({ id: "COKE_PUMP", type: "DISPENSER", gives: "COKE", x: 40, y: 238, w: 78, h: 54, active: false, t: 0, byPlayerId: null });
-
-
-  // OVEN: 2 slots by default; 3 slots for 4–5 players
-  const ovenSlots = ovenSlotCountForPlayers(lc);
-  const ovenW = ovenSlots === 3 ? 132 : 92;
-  const ovenX = kitchenRightInner - ovenW - 10;
+  // keep oven near the ingredient shelf (2 slots)
+  // sized to be only slightly larger than 2 slot squares
   stations.push({
     id: "OVEN",
     type: "OVEN",
-    label: `OVEN (${ovenSlots})`,
-    x: ovenX,
+    label: "OVEN (2)",
+    x: shelfX + (binW + binGap) * 3 + 8,
     y: topY,
-    w: ovenW,
+    w: 92,
     h: topH,
-    slotItemIds: Array(ovenSlots).fill(null),
-    slotTs: Array(ovenSlots).fill(0)
+    slotItemIds: [null, null],
+    slotTs: [0, 0]
   });
 
   const botY = 432, botH = 62;
 
-
-  const sinkW = 92;
-  const sinkX = kitchenRightInner - sinkW - 10;
   // Plate stacks: one in kitchen area, one in serving area (top middle-right).
+  const lc = Math.max(2, Math.min(5, Number(lockedCount || 2)));
   const homeSlots = lc >= 4 ? 4 : 3;
   const serveSlots = lc === 2 ? 1 : 2;
   const plateW = (n) => 12 + n * 40; // n=3 -> 132, n=4 -> 172, n=2 -> 92
@@ -254,7 +216,7 @@ function buildKitchenLayout(orderSlots, lockedCount) {
     id: "SINK",
     type: "SINK",
     label: "SINK (2)",
-    x: sinkX, // near kitchen fence
+    x: 260,
     y: botY,
     w: 92,
     h: botH,
@@ -265,10 +227,7 @@ function buildKitchenLayout(orderSlots, lockedCount) {
   });
 
   // Serving-area plate stack (top middle of serving side)
-  stations.push({ id: "PLATE_SERVICE", type: "PLATE", slotCount: serveSlots, label: `PLATE STACK (${serveSlots})`, x: (KITCHEN_FENCE_X + 40), y: topY, w: plateW(serveSlots), h: topH });
-
-  // Ice cream machine in dining area (auto provides cone + ice cream)
-  stations.push({ id: "ICE_CREAM_MACHINE", type: "DISPENSER", gives: "ICE_CREAM", x: 780, y: topY, w: 92, h: topH, active: false, t: 0, byPlayerId: null });
+  stations.push({ id: "PLATE_SERVICE", type: "PLATE", slotCount: serveSlots, label: `PLATE STACK (${serveSlots})`, x: 560, y: topY, w: plateW(serveSlots), h: topH });
 
   // MAIN TABLE: now only 3 slots (1x3)
   stations.push({ id: "CENTER", type: "CENTER", label: "MAIN TABLE (3 slots)", x: 270, y: 240, w: 132, h: 62 });
@@ -278,9 +237,9 @@ function buildKitchenLayout(orderSlots, lockedCount) {
   // Exactly 3 table sets in this map.
   // We keep x/y/w/h as a collision bounding box, but render using cx/cy/r.
   const base = [
-    { cx: 620, cy: 180 },
-    { cx: 750, cy: 180 },
-    { cx: 685, cy: 325 }
+    { cx: 650, cy: 180 },
+    { cx: 780, cy: 180 },
+    { cx: 715, cy: 325 }
   ];
   const tableR = 22;
   const boxR = 32; // bounding box half-size
@@ -310,7 +269,7 @@ function buildKitchenLayout(orderSlots, lockedCount) {
   }
 
   const walls = [];
-  const t = WALL_T;
+  const t = 18;
   walls.push({ x: 0, y: 0, w: MAP_W, h: t });
   walls.push({ x: 0, y: MAP_H - t, w: MAP_W, h: t });
   walls.push({ x: 0, y: 0, w: t, h: MAP_H });
@@ -320,9 +279,9 @@ function buildKitchenLayout(orderSlots, lockedCount) {
 
   // KITCHEN FENCE: separate kitchen (left) from dining (right).
   // Wall segments leave a doorway gap so players can pass through.
-  const fenceX = KITCHEN_FENCE_X;
-  const doorTop = KITCHEN_DOOR_TOP;
-  const doorBot = KITCHEN_DOOR_BOT;
+  const fenceX = 520;
+  const doorTop = 90;
+  const doorBot = 190;
   walls.push({ x: fenceX, y: 0, w: t, h: doorTop });
   walls.push({ x: fenceX, y: doorBot, w: t, h: MAP_H - doorBot });
 
@@ -363,26 +322,21 @@ function computePlateStackSlotCenters(plateStation) {
   return pts;
 }
 
-function computeRowSlotCenters(station, cols) {
-  const c = Math.max(1, Math.floor(Number(cols || 1)));
+function computeTwoSlotCenters(station) {
+  // 2 slots in a single row (for OVEN / SINK)
+  const cols = 2;
   const marginX = 6, marginY = 10;
-  const cellW = (station.w - marginX * 2) / c;
+  const cellW = (station.w - marginX * 2) / cols;
   const cy = station.y + station.h / 2;
   const pts = [];
-  for (let i = 0; i < c; i++) {
+  for (let c = 0; c < cols; c++) {
     pts.push({
-      x: station.x + marginX + cellW * (i + 0.5),
+      x: station.x + marginX + cellW * (c + 0.5),
       y: cy
     });
   }
   return pts;
 }
-
-function computeTwoSlotCenters(station) {
-  // 2 slots in a single row (for SINK)
-  return computeRowSlotCenters(station, 2);
-}
-
 
 /** Rooms */
 const rooms = new Map();
@@ -560,26 +514,17 @@ function foodWaitFromGreetDelay(delaySec) {
   return FOOD_WAIT_MAX - t * (FOOD_WAIT_MAX - FOOD_WAIT_MIN);
 }
 
-function samplePreItem() {
-  // 40% customers: 20% ice cream, 20% coke (served BEFORE main dish)
-  const r = Math.random();
-  if (r < 0.20) return "ICE_CREAM";
-  if (r < 0.40) return "COKE";
-  return null;
-}
-function sampleMainDish() {
-  return randChoice(PIZZA_TYPES);
-}
+function customerPickDish() { return randChoice(PIZZA_TYPES); }
 
 // Weighted group size. As player count increases, 2–3 person groups become more likely.
 function sampleGroupSize(lockedCount) {
   const n = Number(lockedCount || 2);
 
-  // More players => more 2–3 person groups.
-  let w1 = 0.52, w2 = 0.36, w3 = 0.12; // 2p
-  if (n === 3) { w1 = 0.34; w2 = 0.44; w3 = 0.22; }
-  else if (n === 4) { w1 = 0.22; w2 = 0.46; w3 = 0.32; }
-  else if (n >= 5) { w1 = 0.18; w2 = 0.44; w3 = 0.38; }
+  // Defaults roughly match earlier tuning for 2p.
+  let w1 = 0.62, w2 = 0.30, w3 = 0.08;
+  if (n === 3) { w1 = 0.45; w2 = 0.38; w3 = 0.17; }
+  else if (n === 4) { w1 = 0.34; w2 = 0.42; w3 = 0.24; }
+  else if (n >= 5) { w1 = 0.28; w2 = 0.42; w3 = 0.30; }
 
   const sum = w1 + w2 + w3;
   const r = Math.random() * sum;
@@ -587,7 +532,6 @@ function sampleGroupSize(lockedCount) {
   if (r < (w1 + w2)) return 2;
   return 3;
 }
-
 
 function makeGroup(game, tableIndex, size) {
   const gid = shortId();
@@ -624,19 +568,12 @@ function makeCustomerMember(group, seatIndex, entrance, chairX, chairY) {
     seatY: chairY,
     state: "walking", // walking -> await_order -> waiting_food -> eating -> leaving
     dishType: null,   // revealed when order is taken
-    preType: null,   // optional pre-item (coke/ice cream)
-    preServed: false,
-    mainDishType: null,
     accepted: false,
     served: false,
-    wrongPenaltyUsed: false,
     // per-seat food waiting timer (set when the LAST order in the group is taken)
     patienceTotal: null,
     patienceLeft: null,
     eatLeft: 0,
-    eatingKind: null, // 'pre' | 'main'
-    mainGreetTotal: null,
-    mainGreetLeft: null,
     speed: 98
   };
 }
@@ -707,7 +644,7 @@ function startGame(room, lockedCount) {
     };
   }
   const ovenS = layout.stations.find(st => st.id === "OVEN");
-  const ovenSlotCenters = ovenS ? computeRowSlotCenters(ovenS, Array.isArray(ovenS.slotItemIds) ? ovenS.slotItemIds.length : 2) : [];
+  const ovenSlotCenters = ovenS ? computeTwoSlotCenters(ovenS) : [];
   const sinkS = layout.stations.find(st => st.id === "SINK");
   const sinkSlotCenters = sinkS ? computeTwoSlotCenters(sinkS) : [];
 
@@ -759,11 +696,10 @@ function startGame(room, lockedCount) {
   }
 
   const oven = layout.stations.find(st => st.id === "OVEN");
-if (oven) {
-  const c = Array.isArray(oven.slotItemIds) ? oven.slotItemIds.length : ovenSlotCountForPlayers(room.lockedCount);
-  oven.slotItemIds = Array(c).fill(null);
-  oven.slotTs = Array(c).fill(0);
-}
+  if (oven) {
+    oven.slotItemIds = [null, null];
+    oven.slotTs = [0, 0];
+  }
 
   const sink = layout.stations.find(st => st.id === "SINK");
   if (sink) {
@@ -841,9 +777,7 @@ function takeOrderAtDoor(room, player) {
   const elapsed = clamp(total - left, 0, total);
 
   const wait = Math.round(foodWaitFromGreetDelay(elapsed));
-  c.preType = samplePreItem();
-  c.mainDishType = sampleMainDish();
-  c.dishType = c.preType || c.mainDishType;
+  c.dishType = customerPickDish();
   c.patienceTotal = wait;
   c.patienceLeft = wait;
 
@@ -881,29 +815,21 @@ function getTableSeatPlate(game, tableIdx, seatIdx) {
   return findItem(game, id);
 }
 
-function placeItemOnTableSeat(game, item, tableIdx, seatIdx) {
+function placePlateOnTableSeat(game, plate, tableIdx, seatIdx) {
   const tb = game.layout.tables[tableIdx];
   const seat = tb?.seats?.[seatIdx];
-  if (!tb || !seat || !item) return false;
+  if (!tb || !seat || !plate || plate.type !== "PLATE") return false;
   if (!Array.isArray(game.tableSeatSlots?.[tableIdx])) return false;
-  if (game.tableSeatSlots[tableIdx][seatIdx]) return false;
 
-  // Place item at the small plate spot on the table
-  item.zone = "table";
-  item.x = seat.plateX;
-  item.y = seat.plateY;
-  item.tableIndex = tableIdx;
-  item.seatIndex = seatIdx;
+  plate.zone = "table";
+  plate.x = seat.plateX;
+  plate.y = seat.plateY;
+  plate.tableIndex = tableIdx;
+  plate.seatIndex = seatIdx;
 
-  game.tableSeatSlots[tableIdx][seatIdx] = item.id;
+  game.tableSeatSlots[tableIdx][seatIdx] = plate.id;
   return true;
 }
-
-function placePlateOnTableSeat(game, plate, tableIdx, seatIdx) {
-  if (!plate || plate.type !== "PLATE") return false;
-  return placeItemOnTableSeat(game, plate, tableIdx, seatIdx);
-}
-
 
 function removePlateFromTableSeat(game, tableIdx, seatIdx) {
   const row = game.tableSeatSlots?.[tableIdx];
@@ -1113,20 +1039,12 @@ function stationAction(room, player) {
         if (!group || !group.greetActive) { sendNote(room, "Wait for customers to sit first"); return; }
 
         seatCust.accepted = true;
-        seatCust.preType = samplePreItem();
-        if (seatCust.preType) {
-          // This seat orders a drink/dessert FIRST; main dish order will appear only after they finish it.
-          seatCust.mainDishType = null;
-          seatCust.dishType = seatCust.preType;
-        } else {
-          seatCust.mainDishType = sampleMainDish();
-          seatCust.dishType = seatCust.mainDishType;
-        }
+        seatCust.dishType = customerPickDish();
         group.acceptedCount = (group.acceptedCount || 0) + 1;
 
-        if (seatCust.preType) sendNote(room, `Order taken ✅ Seat ${seatIdx + 1}: ${dishLabelVi(seatCust.preType)} trước`);
-        else sendNote(room, `Order taken ✅ Seat ${seatIdx + 1}: ${dishLabelVi(seatCust.mainDishType)}`);
-// When the LAST seat is taken, start the food waiting timer for the whole group
+        sendNote(room, `Order taken ✅ Seat ${seatIdx + 1}: ${dishLabelVi(seatCust.dishType)}`);
+
+        // When the LAST seat is taken, start the food waiting timer for the whole group
         if (group.acceptedCount >= group.size) {
           const elapsed = clamp(group.greetTotal - group.greetLeft, 0, group.greetTotal);
           const wait = Math.round(foodWaitFromGreetDelay(elapsed));
@@ -1135,16 +1053,9 @@ function stationAction(room, player) {
           // Start per-seat food waiting timers from the LAST taken order.
           for (const c2 of game.customers) {
             if (c2.groupId === group.id && c2.state === "await_order") {
-              // If this seat has a pre-item, they will wait for it BEFORE the main dish.
-              c2.state = c2.preType ? "waiting_pre" : "waiting_food";
-              if (!c2.dishType) c2.dishType = c2.preType || c2.mainDishType || sampleMainDish();
-              if (c2.preType) {
-              c2.patienceTotal = FOOD_WAIT_MAX;
-              c2.patienceLeft = FOOD_WAIT_MAX;
-            } else {
+              c2.state = "waiting_food";
               c2.patienceTotal = wait;
               c2.patienceLeft = wait;
-            }
             }
           }
 
@@ -1153,112 +1064,53 @@ function stationAction(room, player) {
         return;
       }
 
-      
-      // Take MAIN order after the pre-item is finished (pre-item has no payment).
-      // This is a per-seat order timer (20s) independent from the initial group greeting timer.
-      if (seatCust && seatCust.state === "await_order_main") {
-        const total = Number(seatCust.mainGreetTotal || ORDER_TAKE_TIME);
-        const left = Number(seatCust.mainGreetLeft || 0);
-        const elapsed = clamp(total - left, 0, total);
-
-        seatCust.mainDishType = sampleMainDish();
-        seatCust.dishType = seatCust.mainDishType;
-
-        let wait = Math.round(foodWaitFromGreetDelay(elapsed));
-        // If they got the pre-item they asked for, main-dish waiting time is +10s (bonus).
-        if (seatCust.preServed) wait += 10;
-
-        seatCust.patienceTotal = wait;
-        seatCust.patienceLeft = wait;
-
-        seatCust.mainGreetLeft = null;
-        seatCust.mainGreetTotal = null;
-
-        seatCust.state = "waiting_food";
-        sendNote(room, `Order món chính ✅ Seat ${seatIdx + 1}: ${dishLabelVi(seatCust.dishType)} • Wait: ${wait}s`);
-        return;
-      }
-
-// Pickup plate from THIS seat (hands empty) - but not while the customer is eating
+      // Pickup plate from THIS seat (hands empty) - but not while the customer is eating
       if (!held && seatPlate && !eatingHere) {
         const it = removePlateFromTableSeat(game, tableIdx, seatIdx);
         if (it) {
           it.zone = "held";
           player.heldItemId = it.id;
-          if (it.type === "PLATE") sendNote(room, it.dirty ? "Picked DIRTY plate 🧼" : "Picked plate");
-          else sendNote(room, `Picked ${dishLabelVi(it.type)}`);
+          sendNote(room, it.dirty ? "Picked DIRTY plate 🧼" : "Picked plate");
         }
         return;
       }
 
+      // Serve by placing a PLATE with correct cooked pizza onto THIS seat
+      if (held && held.type === "PLATE") {
+        if (!seatCust || seatCust.state !== "waiting_food") { sendNote(room, "No waiting customer at this seat"); return; }
+        if (seatPlate) { sendNote(room, "Seat occupied"); return; }
+        if (!plateHasDish(held)) { sendNote(room, "Need a cooked pizza on the plate"); return; }
 
-      // Serve food/drink/dessert by placing the correct item onto THIS seat
-if (held && (held.type === "PLATE" || held.type === "COKE" || held.type === "ICE_CREAM")) {
-  if (!seatCust || (seatCust.state !== "waiting_food" && seatCust.state !== "waiting_pre")) { sendNote(room, "No waiting customer at this seat"); return; }
+        const want = canonicalDishType(seatCust.dishType);
+        const got = canonicalDishType(held.dishType);
 
-  // For simplicity (and to avoid stacking), require the seat spot to be empty before serving anything.
-  if (seatPlate) { sendNote(room, "Seat occupied"); return; }
+        if (!want || !got || want !== got) {
+          // No gold penalty for wrong dish. Instead, reduce THIS seat's remaining food-wait time.
+          if (typeof seatCust.patienceLeft === "number") {
+            seatCust.patienceLeft = Math.max(0, seatCust.patienceLeft - WRONG_DISH_WAIT_PENALTY);
+          }
+sendNote(room, `Sai món (-${WRONG_DISH_WAIT_PENALTY}s chờ) ❌ Khách cần: ${dishLabelVi(want)} • Bạn đưa: ${dishLabelVi(got || held.dishType)}`);
+          return;
+        }
 
-  const want = canonicalDishType(seatCust.dishType);
-  let got = null;
+        const pts = serveGoldFromCustomer(seatCust);
 
-  if (held.type === "PLATE") {
-    if (!plateHasDish(held)) { sendNote(room, "Need a cooked pizza on the plate"); return; }
-    got = canonicalDishType(held.dishType);
-  } else {
-    got = canonicalDishType(held.type);
-  }
+        // Place the whole plate onto the table. Payment is received only AFTER the customer finishes eating.
+        placePlateOnTableSeat(game, held, tableIdx, seatIdx);
+        player.heldItemId = null;
 
-  if (!want || !got || want !== got) {
-    // No gold penalty for wrong dish. Instead, reduce THIS seat's remaining wait time ONCE.
-    if (!seatCust.wrongPenaltyUsed) {
-      seatCust.wrongPenaltyUsed = true;
-      if (typeof seatCust.patienceLeft === "number") {
-        seatCust.patienceLeft = Math.max(0, seatCust.patienceLeft - WRONG_DISH_WAIT_PENALTY);
+        seatCust.state = "eating";
+        seatCust.eatLeft = randRange(EAT_TIME_MIN, EAT_TIME_MAX);
+        seatCust.served = true;
+        seatCust.pay = pts;
+
+        sendNote(room, `Served ✅ (will pay after eating)`);
+        return;
       }
-      sendNote(room, `Sai món (-${WRONG_DISH_WAIT_PENALTY}s chờ) ❌ Khách cần: ${dishLabelVi(want)} • Bạn đưa: ${dishLabelVi(got || held.dishType || held.type)}`);
-    } else {
-      sendNote(room, `Sai món ❌ Khách cần: ${dishLabelVi(want)} • Bạn đưa: ${dishLabelVi(got || held.dishType || held.type)}`);
-    }
-    return;
-  }
-
-  // ✅ Correct item
-  if (seatCust.state === "waiting_pre") {
-    // Serve pre-item (Coke / Ice cream). It will be consumed, THEN the main dish order appears.
-    if (!placeItemOnTableSeat(game, held, tableIdx, seatIdx)) { sendNote(room, "Can't place here"); return; }
-    player.heldItemId = null;
-
-    seatCust.preServed = true;
-    seatCust.state = "eating";
-    seatCust.eatingKind = "pre";
-    seatCust.eatLeft = randRange(PRE_EAT_TIME_MIN, PRE_EAT_TIME_MAX);
-    seatCust.pay = 0; // no payment for pre-item
-
-    sendNote(room, `Served ${dishLabelVi(want)} ✅ (xong sẽ gọi món chính)`);
-    return;
-  }
-
-  // Main dish: place item onto the table seat. Payment is received only AFTER the customer finishes eating.
-  const pts = serveGoldFromCustomer(seatCust);
-
-  if (!placeItemOnTableSeat(game, held, tableIdx, seatIdx)) { sendNote(room, "Can't place here"); return; }
-  player.heldItemId = null;
-
-  seatCust.state = "eating";
-  seatCust.eatLeft = randRange(EAT_TIME_MIN, EAT_TIME_MAX);
-  seatCust.served = true;
-  seatCust.pay = pts;
-
-  sendNote(room, `Served ✅ (will pay after eating)`);
-  return;
-}
-
-
     }
   }
 
-  const s = nearestStation(game, player);
+const s = nearestStation(game, player);
   if (!s) return;
 
   if (s.type === "PLATE") {
@@ -1464,22 +1316,7 @@ if (held && (held.type === "PLATE" || held.type === "COKE" || held.type === "ICE
     return;
   }
 
-    if (s.type === "DISPENSER") {
-    if (player.heldItemId) { sendNote(room, "Hands full!"); return; }
-    if (s.active) {
-      if (s.byPlayerId === player.id) { sendNote(room, "Dispensing..."); return; }
-      sendNote(room, "Machine busy");
-      return;
-    }
-    // Start dispensing (takes same time as washing). Player must stay nearby.
-    s.active = true;
-    s.t = 0;
-    s.byPlayerId = player.id;
-    sendNote(room, `Dispensing ${dishLabelVi(s.gives)}...`);
-    return;
-  }
-
-if (s.type === "BIN") {
+  if (s.type === "BIN") {
     if (player.heldItemId) { sendNote(room, "Hands full!"); return; }
     const it = makeItem(s.gives, player.x, player.y, "held");
     game.items.push(it);
@@ -1755,10 +1592,8 @@ function updateRoom(room) {
         continue;
       }
 
-      const slotCount = Array.isArray(oven.slotItemIds) ? oven.slotItemIds.length : 2;
-if (!Array.isArray(oven.slotTs) || oven.slotTs.length !== slotCount) oven.slotTs = Array(slotCount).fill(0);
-oven.slotTs[oi] += dt;
-
+      if (!Array.isArray(oven.slotTs)) oven.slotTs = [0, 0];
+      oven.slotTs[oi] += dt;
 
       // RAW -> cooked
       if (oven.slotTs[oi] >= BAKE_TIME && it.type === "RAW_PIZZA") {
@@ -1826,40 +1661,6 @@ oven.slotTs[oi] += dt;
       }
     }
   }
-
-// DISPENSERS (Coke / Ice cream) progression — same rules as washing:
-// - ACTION starts dispensing (hands must be empty)
-// - Player must stay nearby; moving away/disconnect/carrying cancels and resets progress.
-if (game.layout && Array.isArray(game.layout.stations)) {
-  for (const d of game.layout.stations) {
-    if (!d || d.type !== "DISPENSER") continue;
-    if (!d.active) continue;
-
-    const p = d.byPlayerId ? room.players.get(d.byPlayerId) : null;
-    const ok = p && p.connected && !p.heldItemId && nearRect(p.x, p.y, d, INTERACT_DIST);
-
-    if (!ok) {
-      d.active = false;
-      d.t = 0;
-      d.byPlayerId = null;
-      continue;
-    }
-
-    d.t = Number(d.t || 0) + dt;
-    if (d.t >= WASH_TIME) {
-      d.active = false;
-      d.t = 0;
-      d.byPlayerId = null;
-
-      const it = makeItem(d.gives, p.x, p.y, "held");
-      game.items.push(it);
-      p.heldItemId = it.id;
-
-      sendNote(room, `Got ${dishLabelVi(d.gives)} ✅`);
-    }
-  }
-}
-
   const cfg = room.config;
 
   // Spawn new GROUP (up to 3 tables total in this map).
@@ -1877,7 +1678,7 @@ if (game.layout && Array.isArray(game.layout.stations)) {
 
     // Make the 3rd simultaneous table rare (hard moment).
     let allowSpawn = true;
-    if (occupied >= 2 && maxTables >= 3 && Math.random() > thirdTableSpawnChance(room.lockedCount)) allowSpawn = false;
+    if (occupied >= 2 && maxTables >= 3 && Math.random() > THIRD_TABLE_SPAWN_CHANCE) allowSpawn = false;
     if (remaining <= 0) allowSpawn = false;
 
     if (allowSpawn && occupied < maxTables) {
@@ -1940,7 +1741,7 @@ if (game.layout && Array.isArray(game.layout.stations)) {
           const c = game.customers.find(cc => cc.id === id);
           if (!c) continue;
 
-          if ((c.state === "waiting_food" || c.state === "waiting_pre") && !c.served && typeof c.patienceLeft === "number" && typeof c.patienceTotal === "number") {
+          if (c.state === "waiting_food" && !c.served && typeof c.patienceLeft === "number" && typeof c.patienceTotal === "number") {
             c.patienceLeft -= dt;
             if (c.patienceLeft <= 0) {
               c.patienceLeft = 0;
@@ -2024,73 +1825,26 @@ if (game.layout && Array.isArray(game.layout.stations)) {
       }
     }
 
-    
-    // After finishing a pre-item, customer waits to ORDER the main dish (20s). If not taken, they leave.
-    if (c.state === "await_order_main") {
-      if (typeof c.mainGreetTotal !== "number") c.mainGreetTotal = ORDER_TAKE_TIME;
-      if (typeof c.mainGreetLeft !== "number") c.mainGreetLeft = c.mainGreetTotal;
-
-      c.mainGreetLeft -= dt;
-      if (c.mainGreetLeft <= 0) {
-        c.mainGreetLeft = 0;
-        sendNote(room, `Seat ${c.seatIndex + 1} left (no main order) 😕`);
-        c.state = "leaving";
-        c.tx = game.layout.entrance.x;
-        c.ty = game.layout.entrance.y;
-      }
-    }
-
-if (c.state === "eating") {
+    if (c.state === "eating") {
       c.eatLeft -= dt;
       if (c.eatLeft <= 0) {
-        // Item at THIS seat after eating:
-        // - Pizza plate becomes dirty and stays
-        // - Coke / Ice cream is consumed and disappears
+        // plate at THIS seat becomes dirty after eating
         const pid = game.tableSeatSlots?.[c.tableIndex]?.[c.seatIndex] || null;
-        const item = pid ? findItem(game, pid) : null;
-        if (item && item.type === "PLATE") {
-          resetPlate(item);
-          item.dirty = true;
-        } else if (pid) {
-          if (Array.isArray(game.tableSeatSlots?.[c.tableIndex])) game.tableSeatSlots[c.tableIndex][c.seatIndex] = null;
-          removeItemById(game, pid);
+        const plate = pid ? findItem(game, pid) : null;
+        if (plate && plate.type === "PLATE") {
+          resetPlate(plate);
+          plate.dirty = true;
         }
 
         const pay = Math.max(0, Math.round(Number(c.pay || 0)));
-
-        // If this was a PRE-item (coke/ice cream), there is NO payment.
-        // After finishing the pre-item, the MAIN order appears and must be taken within 20s.
-        if (c.eatingKind === "pre") {
-          c.eatingKind = null;
-
-          // After finishing the pre-item: reveal the MAIN dish automatically (no extra ACTION).
-          // Waiting timer is shared between pre and main; grant +10s bonus to remaining waiting time.
-          if (!c.mainDishType) c.mainDishType = sampleMainDish();
-          c.dishType = c.mainDishType;
-
-          if (typeof c.patienceTotal !== "number" || typeof c.patienceLeft !== "number") {
-            c.patienceTotal = FOOD_WAIT_MAX;
-            c.patienceLeft = FOOD_WAIT_MAX;
-          }
-
-          c.patienceLeft = Math.max(0, Number(c.patienceLeft || 0) + PRE_BONUS_WAIT);
-
-          c.state = "waiting_food";
-          c.preServed = true;
-          c.served = false;
-
-          sendNote(room, `Món chính xuất hiện ✅ Seat ${c.seatIndex + 1}: ${dishLabelVi(c.dishType)} (+${PRE_BONUS_WAIT}s)`);
+        if (pay > 0) {
+          game.score += pay;
+          sendNote(room, `Paid +${pay} 🪙`);
         } else {
-          // Main dish payment (gold is received only AFTER eating)
-          if (pay > 0) {
-            game.score += pay;
-            sendNote(room, `Paid +${pay} 🪙`);
-          } else {
-            sendNote(room, "Customer finished 🍽️");
-          }
-          // Customer stays seated until the whole group leaves together.
-          c.state = "done";
+          sendNote(room, "Customer finished 🍽️");
         }
+        // Customer stays seated until the whole group leaves together.
+        c.state = "done";
       }
     }
   }
@@ -2246,13 +2000,6 @@ function buildSnapshot(room) {
       out.slotTs = Array.isArray(s.slotTs) ? s.slotTs : [Number(s.t || 0)];
       out.slotActives = Array.isArray(s.slotActives) ? s.slotActives : [!!s.active];
     }
-    // DISPENSER: timed progress (like washing)
-    if (s.type === "DISPENSER") {
-      out.active = !!s.active;
-      out.t = Number(s.t || 0);
-      out.byPlayerId = s.byPlayerId || null;
-    }
-
 
     return out;
   });
@@ -2301,9 +2048,8 @@ function buildSnapshot(room) {
 
   const customersOut = game ? game.customers.map(c => {
     const g = getGroup(game, c.groupId);
-    const inGreetGroup = (c.state === "await_order") && g && g.greetActive && (g.acceptedCount < g.size);
-    const inGreetMain = (c.state === "await_order_main") && (typeof c.mainGreetLeft === "number") && (typeof c.mainGreetTotal === "number");
-    const inWait = (c.state === "waiting_food" || c.state === "waiting_pre") && (typeof c.patienceLeft === "number") && (typeof c.patienceTotal === "number");
+    const inGreet = (c.state === "await_order") && g && g.greetActive && (g.acceptedCount < g.size);
+    const inWait = (c.state === "waiting_food") && (typeof c.patienceLeft === "number") && (typeof c.patienceTotal === "number");
 
     return {
       id: c.id,
@@ -2318,8 +2064,8 @@ function buildSnapshot(room) {
       dishType: c.dishType || null,
 
       // shared timers
-      greetLeft: inGreetGroup ? g.greetLeft : (inGreetMain ? c.mainGreetLeft : null),
-      greetTotal: inGreetGroup ? g.greetTotal : (inGreetMain ? c.mainGreetTotal : null),
+      greetLeft: inGreet ? g.greetLeft : null,
+      greetTotal: inGreet ? g.greetTotal : null,
       patienceLeft: inWait ? c.patienceLeft : null,
       patienceTotal: inWait ? c.patienceTotal : null
     };

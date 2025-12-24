@@ -55,7 +55,7 @@
   // Keep in sync with server.js
   const OVEN_BAKE_TIME = 9.0;
   const OVEN_BURN_EXTRA = 8.0;
-  const SINK_WASH_TIME = 7.0;
+  const SINK_WASH_TIME = 5.0;
   const FOOD_WAIT_BASE = 60.0;
 
   function isCookedPizzaType(t) {
@@ -207,44 +207,6 @@
     } else if (t === "SAUSAGE") {
       ctx.fillStyle = "rgba(255,160,180,0.92)";
       pathRoundRect(-size*0.7, -size*0.35, size*1.4, size*0.7, size*0.35);
-      ctx.fill();
-    } else if (t === "COKE") {
-      // cup + straw
-      ctx.fillStyle = "rgba(220,245,255,0.92)";
-      pathRoundRect(-size*0.50, -size*0.55, size*1.0, size*1.15, size*0.18);
-      ctx.fill();
-      ctx.strokeStyle = "rgba(232,236,255,0.45)";
-      ctx.lineWidth = Math.max(2, size*0.10);
-      ctx.beginPath();
-      ctx.moveTo(-size*0.50, -size*0.15);
-      ctx.lineTo(size*0.50, -size*0.15);
-      ctx.stroke();
-      ctx.strokeStyle = "rgba(255,110,110,0.85)";
-      ctx.lineWidth = Math.max(2, size*0.12);
-      ctx.beginPath();
-      ctx.moveTo(size*0.10, -size*0.85);
-      ctx.lineTo(size*0.10, -size*0.35);
-      ctx.stroke();
-      ctx.fillStyle = "rgba(255,110,110,0.85)";
-      ctx.beginPath();
-      ctx.arc(size*0.10, -size*0.90, Math.max(2, size*0.10), 0, Math.PI*2);
-      ctx.fill();
-    } else if (t === "ICE_CREAM") {
-      // cone + scoop
-      ctx.fillStyle = "rgba(255, 224, 170, 0.92)";
-      ctx.beginPath();
-      ctx.moveTo(-size*0.28, -size*0.10);
-      ctx.lineTo(size*0.28, -size*0.10);
-      ctx.lineTo(0, size*0.70);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = "rgba(232,236,255,0.90)";
-      ctx.beginPath();
-      ctx.arc(0, -size*0.35, size*0.45, 0, Math.PI*2);
-      ctx.fill();
-      ctx.fillStyle = "rgba(255,170,210,0.70)";
-      ctx.beginPath();
-      ctx.arc(-size*0.18, -size*0.45, size*0.18, 0, Math.PI*2);
       ctx.fill();
     } else if (t === "PLATE") {
       ctx.strokeStyle = "rgba(232,236,255,0.78)";
@@ -540,26 +502,34 @@
     if (!gameScreen.classList.contains("hidden")) fitGameFrame();
   });
 
-  
+  function drawCenterSlots(s) {
+    // match server-ish spacing
+    const cols = 3, rows = 2;
+    const marginX = 6, marginY = 6;
+    const cellW = (s.w - marginX * 2) / cols;
+    const cellH = (s.h - marginY * 2) / rows;
 
-function drawCenterSlots(s) {
-  // MAIN TABLE: 3 slots (1x3) – keep in sync with server computeCenterSlotCenters()
-  const cols = 3;
-  const marginX = 6, marginY = 16;
-  const cellW = (s.w - marginX * 2) / cols;
-  const cy = s.y + s.h / 2;
+    ctx.strokeStyle = "rgba(232,236,255,0.18)";
+    ctx.lineWidth = 2;
 
-  ctx.strokeStyle = "rgba(232,236,255,0.18)";
-  ctx.lineWidth = 2;
+    let idx = 0;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const cx = s.x + marginX + cellW * (c + 0.5);
+        const cy = s.y + marginY + cellH * (r + 0.5);
+        pathRoundRect(cx - 15, cy - 15, 30, 30, 7);
+        ctx.stroke();
 
-  for (let c = 0; c < cols; c++) {
-    const cx = s.x + marginX + cellW * (c + 0.5);
-    pathRoundRect(cx - 15, cy - 15, 30, 30, 7);
-    ctx.stroke();
+        // slot index tiny
+        ctx.fillStyle = "rgba(232,236,255,0.20)";
+        ctx.font = "10px system-ui";
+        ctx.fillText(String(idx + 1), cx - 3, cy + 4);
+        idx++;
+      }
+    }
   }
-}
 
-function drawPlateStackSlots(s) {
+  function drawPlateStackSlots(s) {
     const cols = Math.max(1, Number(s.slotCount || 3));
     const rows = 1;
     const marginX = 8, marginY = 16;
@@ -585,45 +555,36 @@ function drawPlateStackSlots(s) {
     }
   }
 
-  function rowSlotCenters(s, cols) {
-  const c = Math.max(1, Math.floor(Number(cols || 1)));
-  const marginX = 6;
-  const cellW = (s.w - marginX * 2) / c;
-  const cy = s.y + s.h / 2;
-  const pts = [];
-  for (let i = 0; i < c; i++) {
-    pts.push({
-      x: s.x + marginX + cellW * (i + 0.5),
-      y: cy
-    });
+  function twoSlotCenters(s) {
+    // match server computeTwoSlotCenters()
+    const cols = 2;
+    const marginX = 6;
+    const cellW = (s.w - marginX * 2) / cols;
+    const cy = s.y + s.h / 2;
+    const pts = [];
+    for (let c = 0; c < cols; c++) {
+      pts.push({
+        x: s.x + marginX + cellW * (c + 0.5),
+        y: cy
+      });
+    }
+    return pts;
   }
-  return pts;
-}
 
-function twoSlotCenters(s) {
-  // match server computeTwoSlotCenters() for sink
-  return rowSlotCenters(s, 2);
-}
-
-
-  function drawRowSlots(s, cols) {
-  const pts = rowSlotCenters(s, cols);
-  ctx.strokeStyle = "rgba(232,236,255,0.18)";
-  ctx.lineWidth = 2;
-  for (let i = 0; i < pts.length; i++) {
-    const p = pts[i];
-    pathRoundRect(p.x - 15, p.y - 15, 30, 30, 7);
-    ctx.stroke();
-    ctx.fillStyle = "rgba(0,0,0,0.12)";
-    ctx.fill();
+  function drawTwoSlots(s) {
+    const pts = twoSlotCenters(s);
+    ctx.strokeStyle = "rgba(232,236,255,0.18)";
+    ctx.lineWidth = 2;
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i];
+      pathRoundRect(p.x - 15, p.y - 15, 30, 30, 7);
+      ctx.stroke();
+      ctx.fillStyle = "rgba(232,236,255,0.20)";
+      ctx.font = "10px system-ui";
+      ctx.fillText(String(i + 1), p.x - 3, p.y + 4);
+    }
+    return pts;
   }
-  return pts;
-}
-
-function drawTwoSlots(s) {
-  return drawRowSlots(s, 2);
-}
-
 
   function draw() {
     requestAnimationFrame(draw);
@@ -701,33 +662,18 @@ function drawTwoSlots(s) {
       }
 
       if (s.type === "BIN" && s.gives) {
-        // Center the ingredient icon inside the bin
-        drawItemIcon(s.gives, s.x + s.w / 2, s.y + s.h / 2, 12);
-      }
-
-      if (s.type === "DISPENSER" && s.gives) {
-        drawItemIcon(s.gives, s.x + s.w / 2, s.y + s.h / 2, 12);
-      }
-      if (s.type === "DISPENSER" && s.active) {
-        const p = Math.min(1, Math.max(0, (s.t || 0) / SINK_WASH_TIME));
-        const cx = s.x + s.w / 2;
-        const cy = s.y + s.h / 2 + 18;
-        drawRing(cx, cy, 9, p, "rgba(120,180,255,0.75)", "rgba(0,0,0,0.35)", 3);
+        drawItemIcon(s.gives, s.x + s.w - 18, s.y + 20, 12);
       }
 
       let slotPts = null;
       if (s.id === "CENTER") drawCenterSlots(s);
       if (s.type === "PLATE") drawPlateStackSlots(s);
-      if (s.id === "OVEN") {
-        const cols = (Array.isArray(s.slots) && s.slots.length) ? s.slots.length : (Array.isArray(s.slotTs) && s.slotTs.length ? s.slotTs.length : 2);
-        slotPts = drawRowSlots(s, cols);
-      }
+      if (s.id === "OVEN") slotPts = drawTwoSlots(s);
       if (s.id === "SINK") slotPts = drawTwoSlots(s);
 
       // OVEN bars: GREEN for baking -> cooked, RED for cooked -> burnt
       if (s.type === "OVEN" && Array.isArray(s.slotTs)) {
-        const cols = (Array.isArray(s.slots) && s.slots.length) ? s.slots.length : (Array.isArray(s.slotTs) && s.slotTs.length ? s.slotTs.length : 2);
-        const pts = slotPts || rowSlotCenters(s, cols);
+        const pts = slotPts || twoSlotCenters(s);
         for (let i = 0; i < pts.length; i++) {
           if (!s.slots || !s.slots[i]) continue;
           const t = Number(s.slotTs[i] || 0);
@@ -770,8 +716,8 @@ function drawTwoSlots(s) {
       ctx.fillStyle = "rgba(255,255,255,0.16)";
       ctx.beginPath(); ctx.arc(0, -12, 9, 0, Math.PI * 2); ctx.fill();
 
-      const showGreet = (c.state === "await_order" || c.state === "await_order_main") && (typeof c.greetLeft === "number") && (typeof c.greetTotal === "number");
-      const showWait = (c.state === "waiting_food" || c.state === "waiting_pre") && !!c.dishType && (typeof c.patienceLeft === "number") && (typeof c.patienceTotal === "number");
+      const showGreet = (c.state === "await_order") && (typeof c.greetLeft === "number") && (typeof c.greetTotal === "number");
+      const showWait = (c.state === "waiting_food") && !!c.dishType && (typeof c.patienceLeft === "number") && (typeof c.patienceTotal === "number");
 
       if (showGreet || showWait) {
         ctx.save();
@@ -788,24 +734,17 @@ function drawTwoSlots(s) {
         if (showWait) {
           drawItemIcon(c.dishType, 0, -3, 18);
 
-          // label under icon (pizza toppings / quick items)
+          // label under icon (C / S / CS)
           const dt = String(c.dishType || "").toUpperCase();
           let lbl = "";
-          if (dt === "COKE") lbl = "🥤";
-          else if (dt === "ICE_CREAM") lbl = "🍦";
-          else {
-            const hasC = dt.includes("PHOMAI") || dt.includes("CHEESE");
-            const hasS = dt.includes("XUCXICH") || dt.includes("SAUSAGE");
-            if (hasC && hasS) lbl = "CS";
-            else if (hasC) lbl = "C";
-            else if (hasS) lbl = "S";
-          }
-          if (lbl) {
-            ctx.fillStyle = "rgba(232,236,255,0.80)";
-            ctx.font = "10px system-ui";
-            ctx.fillText(lbl, -ctx.measureText(lbl).width / 2, 14);
-          }
-
+          const hasC = dt.includes("PHOMAI") || dt.includes("CHEESE");
+          const hasS = dt.includes("XUCXICH") || dt.includes("SAUSAGE");
+          if (hasC && hasS) lbl = "CS";
+          else if (hasC) lbl = "C";
+          else if (hasS) lbl = "S";
+          ctx.fillStyle = "rgba(232,236,255,0.80)";
+          ctx.font = "10px system-ui";
+          ctx.fillText(lbl, -ctx.measureText(lbl).width / 2, 14);
 
           // patience countdown (circular)
 // Fill amount is scaled against FOOD_WAIT_BASE (60s) so shorter waits start with a smaller ring.
@@ -826,24 +765,16 @@ ctx.fillText(sec, -ctx.measureText(sec).width / 2, 24);
           if (c.dishType) {
             drawItemIcon(c.dishType, 0, -3, 18);
 
-            // label under icon (pizza toppings / quick items)
-          const dt = String(c.dishType || "").toUpperCase();
-          let lbl = "";
-          if (dt === "COKE") lbl = "🥤";
-          else if (dt === "ICE_CREAM") lbl = "🍦";
-          else {
+            const dt = String(c.dishType || "").toUpperCase();
+            let lbl = "";
             const hasC = dt.includes("PHOMAI") || dt.includes("CHEESE");
             const hasS = dt.includes("XUCXICH") || dt.includes("SAUSAGE");
             if (hasC && hasS) lbl = "CS";
             else if (hasC) lbl = "C";
             else if (hasS) lbl = "S";
-          }
-          if (lbl) {
             ctx.fillStyle = "rgba(232,236,255,0.80)";
             ctx.font = "10px system-ui";
             ctx.fillText(lbl, -ctx.measureText(lbl).width / 2, 14);
-          }
-
           } else {
             ctx.fillStyle = "rgba(232,236,255,0.85)";
             ctx.font = "16px system-ui";
