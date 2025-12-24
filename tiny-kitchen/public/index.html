@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
+  <title>Tiny Kitchen</title>
+  <style>
+    :root{
+      --bg:#0f1220; --text:#e8ecff; --muted:#b6bddb;
+      --accent:#7cf3c8; --danger:#ff5e7a; --line:rgba(255,255,255,0.12);
+    }
+    *{ box-sizing:border-box; }
+    body{
+      margin:0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background: radial-gradient(900px 600px at 20% -10%, rgba(124,243,200,0.18), transparent 60%),
+                  radial-gradient(900px 600px at 120% 10%, rgba(140,120,255,0.16), transparent 55%),
+                  var(--bg);
+      color:var(--text);
+    }
+    .hidden{ display:none !important; }
+
+    .screen{ min-height: 100dvh; display:flex; align-items:center; justify-content:center; padding:16px; }
+    .panel{
+      width:min(520px, 92vw);
+      background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 14px;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.35);
+    }
+    h2{ margin:0 0 10px 0; font-size:18px; }
+    .hint{ color: var(--muted); font-size:13px; line-height:1.4; }
+    label{ display:block; font-size:13px; color:var(--muted); margin:10px 0 6px; }
+    input{
+      width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line);
+      background: rgba(0,0,0,0.25); color: var(--text); outline:none;
+    }
+    .row{ display:flex; gap:8px; }
+    .row > *{ flex:1; }
+    .divider{ height:1px; background: var(--line); margin:12px 0; }
+
+    button{
+      cursor:pointer; border:0; border-radius:12px; padding:10px 12px;
+      font-weight:800; color:#08101a; background: var(--accent);
+      user-select:none; -webkit-tap-highlight-color: transparent;
+    }
+    button.secondary{ background: rgba(255,255,255,0.10); color: var(--text); border:1px solid var(--line); }
+    button:disabled{ opacity:0.55; cursor:not-allowed; }
+
+    .pill{ display:inline-flex; align-items:center; padding:3px 8px; border:1px solid var(--line); border-radius:999px; font-size:12px; color:var(--muted); }
+    .pillBtn{ cursor:pointer; user-select:none; }
+    .pillBtn:hover{ border-color: rgba(255,255,255,0.20); }
+    .errorBox{
+      margin-top:10px; padding:10px 12px; border-radius:12px;
+      border:1px solid rgba(255,94,122,0.35); background: rgba(255,94,122,0.08);
+      color: rgba(255,240,244,0.95); font-weight:800; display:none;
+    }
+
+    .list{ display:flex; flex-direction:column; gap:8px; margin-top:8px; }
+    .player{
+      display:flex; justify-content:space-between; align-items:center;
+      padding:8px 10px; border-radius:10px; border:1px solid var(--line);
+      background: rgba(0,0,0,0.20);
+    }
+    .badge{ font-size:11px; padding:2px 8px; border-radius:999px; border:1px solid var(--line); color: var(--muted); }
+    .badge.host{ color:#06141a; background: var(--accent); border-color: transparent; font-weight:900; }
+    .badge.off{ color: rgba(255,255,255,0.6); background: rgba(255,255,255,0.08); }
+
+    /* GAME */
+    #gameScreen{ padding:0; }
+    #gameRoot{
+      width: 100vw;
+      height: 100dvh;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      background: rgba(0,0,0,0.15);
+      position:relative;
+      overflow:hidden;
+    }
+    #gameFrame{
+      position:relative;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: rgba(0,0,0,0.35);
+      overflow:hidden;
+      touch-action:none;
+    }
+    canvas{ display:block; }
+
+    .hudTop{
+      position:absolute; top:10px; left:10px; right:10px;
+      display:flex; justify-content:space-between;
+      pointer-events:none; font-weight:900;
+      text-shadow:0 2px 10px rgba(0,0,0,0.6);
+    }
+    .hudTop .left, .hudTop .right{ display:flex; gap:10px; flex-wrap:wrap; }
+
+    .hudTop .pillBtn{ pointer-events:auto; cursor:pointer; }
+
+    .toast{
+      position:absolute; left:12px; bottom:12px;
+      display:flex; flex-direction:column; gap:6px;
+      pointer-events:none;
+    }
+    .toast .msg{
+      padding:8px 10px; border-radius:10px;
+      background: rgba(0,0,0,0.55); border:1px solid var(--line);
+      font-weight:800; max-width:70vw;
+    }
+
+    .controls{ position:absolute; inset:0; pointer-events:none; }
+    .joystick{
+      position:absolute; left: 10px; bottom: 10px;
+      width: 124px; height: 124px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.05);
+      pointer-events:auto;
+      touch-action:none;
+      user-select:none;
+      opacity: 0.95;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    }
+    .joyKnob{
+      width: 54px; height: 54px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.18);
+      background: rgba(0,0,0,0.35);
+      transform: translate(0,0);
+    }
+
+    .btnCol{
+      position:absolute; right:10px; bottom:10px;
+      display:flex; flex-direction:column; gap:10px;
+      pointer-events:auto; touch-action:none; user-select:none;
+      opacity: 0.96;
+    }
+    .btnRound{
+      width:82px; height:82px; border-radius:999px; border:1px solid var(--line);
+      background: rgba(0,0,0,0.35); color: var(--text); font-weight:900;
+      display:flex; align-items:center; justify-content:center;
+    }
+    .btnRound.action{ background: rgba(124,243,200,0.18); border-color: rgba(124,243,200,0.42); }
+    .btnRound.small{ width:60px; height:60px; font-size:12px; font-weight:900; }
+
+    .endOverlay{
+      position:absolute; inset:0; background: rgba(0,0,0,0.66);
+      display:flex; align-items:center; justify-content:center; padding:14px;
+    }
+    .endPanel{
+      width:min(520px, 92vw);
+      background: rgba(18,20,34,0.95);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 14px;
+      box-shadow: 0 30px 80px rgba(0,0,0,0.55);
+    }
+    .endTitle{ font-size:22px; font-weight:900; margin:0 0 6px 0; }
+    .endMeta{ color: var(--muted); margin:0 0 12px 0; }
+  </style>
+</head>
+<body>
+
+  <!-- LOBBY -->
+  <div class="screen" id="lobbyScreen">
+    <div class="panel">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+        <div style="font-weight:900;">🍕 Tiny Kitchen</div>
+        <div class="pill" id="connPill">Connecting…</div>
+      </div>
+      <div class="hint" style="margin-top:8px;">Pizza only • 2–5 players</div>
+
+      <label>Tên của bạn</label>
+      <input id="nameInput" placeholder="VD: Han" maxlength="18" />
+
+      <div class="divider"></div>
+
+      <button id="btnCreate">Create Room</button>
+
+      <label>Room Code</label>
+      <div class="row">
+        <input id="codeInput" placeholder="VD: A1B2C" maxlength="8" />
+        <button class="secondary" id="btnJoin">Join</button>
+      </div>
+
+      <div class="errorBox" id="errorBox"></div>
+    </div>
+  </div>
+
+  <!-- ROOM (WAITING) -->
+  <div class="screen hidden" id="roomScreen">
+    <div class="panel">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+        <h2 style="margin:0;">Room <span class="pill" id="roomCodePill">—</span></h2>
+        <div class="pill" id="roomConnPill">Online</div>
+      </div>
+
+      <div class="hint" style="margin-top:6px;">
+        Bạn: <b id="youName">—</b><br/>
+        Host bấm Start khi có 2–5 người.
+      </div>
+
+      <div class="divider"></div>
+      <div class="list" id="playerList"></div>
+
+      <div class="divider"></div>
+      <div class="row">
+        <button id="btnStart">Start (Host)</button>
+        <button class="secondary" id="btnLeave">Leave</button>
+      </div>
+
+      <div class="errorBox" id="errorBoxRoom"></div>
+    </div>
+  </div>
+
+  <!-- GAME -->
+  <div class="screen hidden" id="gameScreen">
+    <div id="gameRoot">
+      <div id="gameFrame">
+        <div class="hudTop">
+          <div class="left">
+            <div id="hudTimer">⏱ 0:00</div>
+            <div id="hudScore">🪙 0 / 0</div>
+          </div>
+          <div class="right">
+            <div class="pill" id="hudInfo">Room —</div>
+            <div class="pill" id="hudLock">Lock: —</div>
+            <div class="pill pillBtn" id="btnPause" title="Pause/Resume (Host)">⏸</div>
+          </div>
+        </div>
+
+        <canvas id="game" width="900" height="520"></canvas>
+
+        <div id="pauseOverlay" class="hidden" style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none;">
+          <div style="padding:12px 16px; border-radius:14px; border:1px solid var(--line); background: rgba(0,0,0,0.55); font-weight:900;">PAUSED</div>
+        </div>
+
+        <div class="controls" id="controls">
+          <div class="joystick" id="joystick" aria-label="Move joystick">
+            <div class="joyKnob" id="joyKnob"></div>
+          </div>
+
+          <div class="btnCol">
+            <div class="btnRound action" id="btnAction">ACTION</div>
+          </div>
+        </div>
+
+        <div class="toast" id="toast"></div>
+
+        <div class="endOverlay hidden" id="endOverlay">
+          <div class="endPanel">
+            <div class="endTitle" id="endTitle">Result</div>
+            <div class="endMeta" id="endMeta">—</div>
+            <div class="row">
+              <button id="btnPlayAgain">Play again (Host)</button>
+              <button class="secondary" id="btnBackRoom">Back to room</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="errorBox" id="errorBoxGame" style="position:absolute; right:10px; top:56px; width:min(360px, 92vw);"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/client.js"></script>
+</body>
+</html>
