@@ -1,5 +1,8 @@
 FROM node:20-alpine
-WORKDIR /app
+
+# Northflank (combined services) typically launches the app from /workspace.
+# Keeping WORKDIR aligned avoids "Cannot find module" issues at runtime.
+WORKDIR /workspace
 
 # Install dependencies first (better cache)
 COPY package*.json ./
