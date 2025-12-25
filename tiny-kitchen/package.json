@@ -10,10 +10,5 @@
   "dependencies": {
     "express": "^4.19.2",
     "socket.io": "^4.7.5"
-  },
-  "engines": {
-    "node": "20.x",
-    "npm": "10.x"
-  },
-  "packageManager": "npm@10.9.2"
+  }
 }
